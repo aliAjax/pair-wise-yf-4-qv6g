@@ -6,8 +6,18 @@ export type TreeDensity = '稀疏' | '适中' | '茂密'
 
 export type PedestrianStatus = '稀少' | '零星' | '密集'
 
+export interface Journey {
+  id: string
+  routeName: string
+  seatDirection: SeatDirection
+  startTime: string
+  endTime: string | null
+  createdAt: string
+}
+
 export interface WindowScene {
   id: string
+  journeyId: string
   routeName: string
   segment: string
   seatDirection: SeatDirection
@@ -19,10 +29,14 @@ export interface WindowScene {
   note: string
 }
 
-export interface SceneFormData {
+export interface JourneyFormData {
   routeName: string
-  segment: string
   seatDirection: SeatDirection
+  startTime: string
+}
+
+export interface SceneFormData {
+  segment: string
   weather: Weather
   signText: string
   treeDensity: TreeDensity
