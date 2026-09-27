@@ -1,17 +1,15 @@
 import { useState, useEffect } from 'react'
-import { Bus, MapPin, Armchair, Clock, CloudSun, Signpost, TreePine, Users, FileText, Send } from 'lucide-react'
+import { Bus, MapPin, Armchair, Clock, CloudSun, Signpost, TreePine, Users, FileText, Send, Play, Square } from 'lucide-react'
 import { useSceneStore } from '@/store/useSceneStore'
 import { getWeatherIcon, getTreeIcon, getPedestrianIcon, formatTimestamp } from '@/utils/sceneHelpers'
-import type { SceneFormData, Weather, TreeDensity, PedestrianStatus, SeatDirection } from '@/types'
+import type { SceneFormData, JourneyFormData, Weather, TreeDensity, PedestrianStatus, SeatDirection } from '@/types'
 
 const WEATHERS: Weather[] = ['晴', '多云', '阴', '小雨', '大雨', '雪', '雾']
 const TREES: TreeDensity[] = ['稀疏', '适中', '茂密']
 const PEDESTRIANS: PedestrianStatus[] = ['稀少', '零星', '密集']
 
-const initialForm: SceneFormData = {
-  routeName: '',
+const initialSceneForm: SceneFormData = {
   segment: '',
-  seatDirection: '左',
   weather: '晴',
   signText: '',
   treeDensity: '适中',
@@ -19,10 +17,16 @@ const initialForm: SceneFormData = {
   note: '',
 }
 
+const initialJourneyForm: JourneyFormData = {
+  routeName: '',
+  seatDirection: '左',
+}
+
 export default function RecordPage() {
-  const saveScene = useSceneStore((s) => s.saveScene)
-  const loadAll = useSceneStore((s) => s.loadAll)
-  const [form, setForm] = useState<SceneFormData>(initialForm)
+  const { activeJourney, scenes, loadAll, createJourney, endActiveJourney, saveScene } =
+    useSceneStore()
+  const [journeyForm, setJourneyForm] = useState<JourneyFormData>(initialJourneyForm)
+  const [form, setForm] = useState<SceneFormData>(initialSceneForm)
   const [now, setNow] = useState(new Date())
   const [showSuccess, setShowSuccess] = useState(false)
 
@@ -36,14 +40,24 @@ export default function RecordPage() {
   const update = <K extends keyof SceneFormData>(key: K, val: SceneFormData[K]) =>
     setForm((prev) => ({ ...prev, [key]: val }))
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const sceneCount = activeJourney
+    ? scenes.filter((s) => s.journeyId === activeJourney.id).length
+    : 0
+
+  const handleCreateJourney = (e: React.FormEvent) => {
+    e.preventDefault()
+    createJourney(journeyForm)
+    setJourneyForm(initialJourneyForm)
+    setForm(initialSceneForm)
+  }
+
+  const handleSubmitScene = (e: React.FormEvent) => {
     e.preventDefault()
     saveScene(form)
     setShowSuccess(true)
-    setTimeout(() => {
-      setShowSuccess(false)
-      setForm(initialForm)
-    }, 1500)
+    setTimeout(() => setShowSuccess(false), 1500)
+    // 连续记录：天气等环境项保留，只清空区间与文字，下一条接着填
+    setForm((prev) => ({ ...prev, segment: '', signText: '', note: '' }))
   }
 
   return (
@@ -58,99 +72,155 @@ export default function RecordPage() {
         </div>
       )}
 
-      <form onSubmit={handleSubmit} className="mx-auto max-w-lg space-y-6">
+      <div className="mx-auto max-w-lg space-y-6">
         <div className="flex items-center gap-2 mb-2">
           <Bus className="w-6 h-6 text-dusk-400" />
           <h1 className="text-mist-100 font-serif text-2xl">窗景记录</h1>
         </div>
 
-        <section className="space-y-3">
-          <h2 className="text-dusk-400 font-serif text-lg flex items-center gap-2">
-            <MapPin className="w-4 h-4" />路线信息
-          </h2>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-mist-300 text-xs mb-1 flex items-center gap-1"><Bus className="w-3 h-3" />线路</label>
-              <input className="w-full bg-teal-850 text-mist-100 rounded-xl px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-dusk-400" value={form.routeName} onChange={(e) => update('routeName', e.target.value)} required />
-            </div>
-            <div>
-              <label className="text-mist-300 text-xs mb-1 flex items-center gap-1"><MapPin className="w-3 h-3" />区间</label>
-              <input className="w-full bg-teal-850 text-mist-100 rounded-xl px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-dusk-400" value={form.segment} onChange={(e) => update('segment', e.target.value)} required />
-            </div>
-          </div>
-          <div>
-            <label className="text-mist-300 text-xs mb-1 flex items-center gap-1"><Armchair className="w-3 h-3" />座位方向</label>
-            <div className="flex gap-2">
-              {(['左', '右'] as SeatDirection[]).map((d) => (
-                <button key={d} type="button" onClick={() => update('seatDirection', d)}
-                  className={`flex-1 py-2 rounded-xl text-sm font-medium transition ${form.seatDirection === d ? 'bg-dusk-400/20 text-dusk-400 border border-dusk-400' : 'bg-teal-850 text-mist-300 border border-transparent'}`}>
-                  {d}侧
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
+        {!activeJourney ? (
+          <form onSubmit={handleCreateJourney} className="space-y-6">
+            <section className="space-y-3">
+              <h2 className="text-dusk-400 font-serif text-lg flex items-center gap-2">
+                <MapPin className="w-4 h-4" />开始一段行程
+              </h2>
+              <p className="text-mist-500 text-xs">
+                先建好行程，之后保存窗景只需补区间和观察内容；行程未结束前切换页面也不会丢
+              </p>
+              <div>
+                <label className="text-mist-300 text-xs mb-1 flex items-center gap-1"><Bus className="w-3 h-3" />线路</label>
+                <input
+                  className="w-full bg-teal-850 text-mist-100 rounded-xl px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-dusk-400"
+                  value={journeyForm.routeName}
+                  onChange={(e) => setJourneyForm((prev) => ({ ...prev, routeName: e.target.value }))}
+                  placeholder="如：71路"
+                  required
+                />
+              </div>
+              <div>
+                <label className="text-mist-300 text-xs mb-1 flex items-center gap-1"><Armchair className="w-3 h-3" />座位方向</label>
+                <div className="flex gap-2">
+                  {(['左', '右'] as SeatDirection[]).map((d) => (
+                    <button key={d} type="button"
+                      onClick={() => setJourneyForm((prev) => ({ ...prev, seatDirection: d }))}
+                      className={`flex-1 py-2 rounded-xl text-sm font-medium transition ${journeyForm.seatDirection === d ? 'bg-dusk-400/20 text-dusk-400 border border-dusk-400' : 'bg-teal-850 text-mist-300 border border-transparent'}`}>
+                      {d}侧
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="flex items-center gap-2 text-mist-400 text-xs">
+                <Clock className="w-3 h-3" />
+                <span>开始时间 {formatTimestamp(now.toISOString())}</span>
+              </div>
+            </section>
 
-        <section className="space-y-3">
-          <h2 className="text-dusk-400 font-serif text-lg flex items-center gap-2">
-            <CloudSun className="w-4 h-4" />窗景信息
-          </h2>
-          <div>
-            <label className="text-mist-300 text-xs mb-1 block">天气</label>
-            <div className="grid grid-cols-4 gap-2">
-              {WEATHERS.map((w) => (
-                <button key={w} type="button" onClick={() => update('weather', w)}
-                  className={`flex flex-col items-center gap-1 py-2 rounded-xl text-xs transition ${form.weather === w ? 'bg-dusk-400/20 border border-dusk-400 text-dusk-400' : 'bg-teal-850 border border-transparent text-mist-300'}`}>
-                  {getWeatherIcon(w)}{w}
+            <button type="submit"
+              className="w-full py-3 rounded-xl bg-dusk-400 text-teal-950 font-medium text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition">
+              <Play className="w-4 h-4" />开始行程
+            </button>
+          </form>
+        ) : (
+          <>
+            <section className="rounded-xl border border-dusk-400/40 bg-dusk-400/10 p-4 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-dusk-400 opacity-60" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-dusk-400" />
+                  </span>
+                  <span className="text-dusk-300 font-serif text-sm">行程进行中</span>
+                </div>
+                <button type="button" onClick={endActiveJourney}
+                  className="flex items-center gap-1.5 text-xs text-mist-300 bg-teal-850 hover:bg-teal-800 px-3 py-1.5 rounded-lg transition">
+                  <Square className="w-3 h-3" />结束行程
                 </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label className="text-mist-300 text-xs mb-1 flex items-center gap-1"><Signpost className="w-3 h-3" />招牌文字</label>
-            <input className="w-full bg-teal-850 text-mist-100 rounded-xl px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-dusk-400" value={form.signText} onChange={(e) => update('signText', e.target.value)} />
-          </div>
-          <div>
-            <label className="text-mist-300 text-xs mb-1 flex items-center gap-1"><TreePine className="w-3 h-3" />树木密度</label>
-            <div className="grid grid-cols-3 gap-2">
-              {TREES.map((t) => (
-                <button key={t} type="button" onClick={() => update('treeDensity', t)}
-                  className={`flex flex-col items-center gap-1 py-3 rounded-xl text-xs transition ${form.treeDensity === t ? 'bg-dusk-400/20 border border-dusk-400 text-dusk-400' : 'bg-teal-850 border border-transparent text-mist-300'}`}>
-                  {getTreeIcon(t)}{t}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div>
-            <label className="text-mist-300 text-xs mb-1 flex items-center gap-1"><Users className="w-3 h-3" />行人状态</label>
-            <div className="grid grid-cols-3 gap-2">
-              {PEDESTRIANS.map((p) => (
-                <button key={p} type="button" onClick={() => update('pedestrianStatus', p)}
-                  className={`flex flex-col items-center gap-1 py-3 rounded-xl text-xs transition ${form.pedestrianStatus === p ? 'bg-dusk-400/20 border border-dusk-400 text-dusk-400' : 'bg-teal-850 border border-transparent text-mist-300'}`}>
-                  {getPedestrianIcon(p)}{p}
-                </button>
-              ))}
-            </div>
-          </div>
-        </section>
+              </div>
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-mist-200">
+                <span className="flex items-center gap-1"><Bus className="w-3.5 h-3.5 text-dusk-400" />{activeJourney.routeName}</span>
+                <span className="flex items-center gap-1"><Armchair className="w-3.5 h-3.5 text-dusk-400" />{activeJourney.seatDirection}侧</span>
+                <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5 text-dusk-400" />{formatTimestamp(activeJourney.startTime)} 出发</span>
+              </div>
+              <p className="text-mist-500 text-xs">本行程已记录 {sceneCount} 条窗景</p>
+            </section>
 
-        <section className="space-y-3">
-          <h2 className="text-dusk-400 font-serif text-lg flex items-center gap-2">
-            <FileText className="w-4 h-4" />观察笔记
-          </h2>
-          <textarea className="w-full bg-teal-850 text-mist-100 rounded-xl px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-dusk-400 resize-none h-24" value={form.note} onChange={(e) => update('note', e.target.value)} />
-        </section>
+            <form onSubmit={handleSubmitScene} className="space-y-6">
+              <section className="space-y-3">
+                <h2 className="text-dusk-400 font-serif text-lg flex items-center gap-2">
+                  <MapPin className="w-4 h-4" />区间
+                </h2>
+                <input
+                  className="w-full bg-teal-850 text-mist-100 rounded-xl px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-dusk-400"
+                  value={form.segment}
+                  onChange={(e) => update('segment', e.target.value)}
+                  placeholder="如：人民广场 → 静安寺"
+                  required
+                />
+              </section>
 
-        <div className="flex items-center gap-2 text-mist-400 text-xs">
-          <Clock className="w-3 h-3" />
-          <span>{formatTimestamp(now.toISOString())}</span>
-        </div>
+              <section className="space-y-3">
+                <h2 className="text-dusk-400 font-serif text-lg flex items-center gap-2">
+                  <CloudSun className="w-4 h-4" />窗景信息
+                </h2>
+                <div>
+                  <label className="text-mist-300 text-xs mb-1 block">天气</label>
+                  <div className="grid grid-cols-4 gap-2">
+                    {WEATHERS.map((w) => (
+                      <button key={w} type="button" onClick={() => update('weather', w)}
+                        className={`flex flex-col items-center gap-1 py-2 rounded-xl text-xs transition ${form.weather === w ? 'bg-dusk-400/20 border border-dusk-400 text-dusk-400' : 'bg-teal-850 border border-transparent text-mist-300'}`}>
+                        {getWeatherIcon(w)}{w}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-mist-300 text-xs mb-1 flex items-center gap-1"><Signpost className="w-3 h-3" />招牌文字</label>
+                  <input className="w-full bg-teal-850 text-mist-100 rounded-xl px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-dusk-400" value={form.signText} onChange={(e) => update('signText', e.target.value)} />
+                </div>
+                <div>
+                  <label className="text-mist-300 text-xs mb-1 flex items-center gap-1"><TreePine className="w-3 h-3" />树木密度</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {TREES.map((t) => (
+                      <button key={t} type="button" onClick={() => update('treeDensity', t)}
+                        className={`flex flex-col items-center gap-1 py-3 rounded-xl text-xs transition ${form.treeDensity === t ? 'bg-dusk-400/20 border border-dusk-400 text-dusk-400' : 'bg-teal-850 border border-transparent text-mist-300'}`}>
+                        {getTreeIcon(t)}{t}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-mist-300 text-xs mb-1 flex items-center gap-1"><Users className="w-3 h-3" />行人状态</label>
+                  <div className="grid grid-cols-3 gap-2">
+                    {PEDESTRIANS.map((p) => (
+                      <button key={p} type="button" onClick={() => update('pedestrianStatus', p)}
+                        className={`flex flex-col items-center gap-1 py-3 rounded-xl text-xs transition ${form.pedestrianStatus === p ? 'bg-dusk-400/20 border border-dusk-400 text-dusk-400' : 'bg-teal-850 border border-transparent text-mist-300'}`}>
+                        {getPedestrianIcon(p)}{p}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </section>
 
-        <button type="submit"
-          className="w-full py-3 rounded-xl bg-dusk-400 text-teal-950 font-medium text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition">
-          <Send className="w-4 h-4" />保存记录
-        </button>
-      </form>
+              <section className="space-y-3">
+                <h2 className="text-dusk-400 font-serif text-lg flex items-center gap-2">
+                  <FileText className="w-4 h-4" />观察笔记
+                </h2>
+                <textarea className="w-full bg-teal-850 text-mist-100 rounded-xl px-3 py-2 text-sm outline-none focus:ring-1 focus:ring-dusk-400 resize-none h-24" value={form.note} onChange={(e) => update('note', e.target.value)} />
+              </section>
+
+              <div className="flex items-center gap-2 text-mist-400 text-xs">
+                <Clock className="w-3 h-3" />
+                <span>{formatTimestamp(now.toISOString())}</span>
+              </div>
+
+              <button type="submit"
+                className="w-full py-3 rounded-xl bg-dusk-400 text-teal-950 font-medium text-sm flex items-center justify-center gap-2 active:scale-[0.98] transition">
+                <Send className="w-4 h-4" />保存窗景
+              </button>
+            </form>
+          </>
+        )}
+      </div>
     </div>
   )
 }

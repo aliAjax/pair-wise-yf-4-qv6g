@@ -1,75 +1,94 @@
 import { create } from 'zustand'
-import type { WindowScene, SceneFormData } from '@/types'
+import type { WindowScene, SceneFormData, Journey, JourneyFormData } from '@/types'
 import {
-  getAllScenes,
+  getValidScenes,
+  getAllJourneys,
+  getActiveJourney,
+  createJourney as storageCreateJourney,
+  endJourney as storageEndJourney,
+  deleteJourney as storageDeleteJourney,
   saveScene as storageSaveScene,
   deleteScene as storageDeleteScene,
-  getScenesByRoute,
   getAllRouteNames,
   getRandomScene,
 } from '@/services/storage'
 
 interface SceneState {
   scenes: WindowScene[]
+  journeys: Journey[]
+  activeJourney: Journey | null
   routeNames: string[]
-  currentRouteScenes: WindowScene[]
   selectedRoute: string
   randomScene: WindowScene | null
 
   loadAll: () => void
+  createJourney: (data: JourneyFormData) => void
+  endActiveJourney: () => void
+  deleteJourney: (id: string) => void
   saveScene: (data: SceneFormData) => void
   deleteScene: (id: string) => void
   selectRoute: (routeName: string) => void
   refreshRandom: () => void
 }
 
-export const useSceneStore = create<SceneState>((set) => ({
+export const useSceneStore = create<SceneState>((set, get) => ({
   scenes: [],
+  journeys: [],
+  activeJourney: null,
   routeNames: [],
-  currentRouteScenes: [],
   selectedRoute: '',
   randomScene: null,
 
   loadAll: () => {
-    const scenes = getAllScenes()
-    const routeNames = getAllRouteNames()
-    set({ scenes, routeNames })
+    set({
+      scenes: getValidScenes(),
+      journeys: getAllJourneys(),
+      activeJourney: getActiveJourney(),
+      routeNames: getAllRouteNames(),
+    })
+  },
+
+  createJourney: (data: JourneyFormData) => {
+    storageCreateJourney(data)
+    get().loadAll()
+  },
+
+  endActiveJourney: () => {
+    const active = get().activeJourney
+    if (active) storageEndJourney(active.id)
+    get().loadAll()
+  },
+
+  deleteJourney: (id: string) => {
+    storageDeleteJourney(id)
+    get().loadAll()
   },
 
   saveScene: (data: SceneFormData) => {
+    const active = get().activeJourney
+    if (!active) return
     const scene: WindowScene = {
       ...data,
       id: crypto.randomUUID(),
+      journeyId: active.id,
+      routeName: active.routeName,
+      seatDirection: active.seatDirection,
       timestamp: new Date().toISOString(),
     }
     storageSaveScene(scene)
-    const scenes = getAllScenes()
-    const routeNames = getAllRouteNames()
-    set((state) => {
-      const currentRouteScenes =
-        state.selectedRoute ? getScenesByRoute(state.selectedRoute) : []
-      return { scenes, routeNames, currentRouteScenes }
-    })
+    get().loadAll()
   },
 
   deleteScene: (id: string) => {
     storageDeleteScene(id)
-    const scenes = getAllScenes()
-    const routeNames = getAllRouteNames()
-    set((state) => {
-      const currentRouteScenes =
-        state.selectedRoute ? getScenesByRoute(state.selectedRoute) : []
-      return { scenes, routeNames, currentRouteScenes }
-    })
+    get().loadAll()
   },
 
   selectRoute: (routeName: string) => {
-    const currentRouteScenes = routeName ? getScenesByRoute(routeName) : []
-    set({ selectedRoute: routeName, currentRouteScenes })
+    set({ selectedRoute: routeName })
   },
 
   refreshRandom: () => {
-    const randomScene = getRandomScene()
-    set({ randomScene })
+    set({ randomScene: getRandomScene() })
   },
 }))
